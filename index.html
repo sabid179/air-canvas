@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Air Canvas</title>
+    <style>
+      :root {
+        --bg: #0a0a0c;
+        --cyan: #00f3ff;
+        --teal: #00bfa5;
+        --glass: rgba(20, 24, 28, 0.55);
+        --border: rgba(0, 243, 255, 0.25);
+        --text: #d8f8fa;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+        overflow: hidden;
+      }
+
+      /* Stage fills the entire screen; video uses object-fit: cover */
+      #stage {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        overflow: hidden;
+      }
+      #video,
+      #draw,
+      #cursor {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        transform: scaleX(-1); /* mirror like a mirror */
+      }
+      #video {
+        object-fit: cover;
+        opacity: 0.5;
+        filter: saturate(0.7) brightness(0.9);
+      }
+      #draw {
+        z-index: 2;
+      }
+      #cursor {
+        z-index: 3;
+      }
+      #stage::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 4;
+        background: radial-gradient(
+          ellipse at center,
+          transparent 55%,
+          rgba(10, 10, 12, 0.7) 100%
+        );
+      }
+
+      #bar {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 10px 18px;
+        background: var(--glass);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: 96vw;
+      }
+      .badge {
+        min-width: 112px;
+        text-align: center;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        border: 1px solid currentColor;
+        transition: all 0.15s ease;
+      }
+      .badge.drawing {
+        color: var(--cyan);
+        background: rgba(0, 243, 255, 0.12);
+        box-shadow: 0 0 14px rgba(0, 243, 255, 0.5);
+      }
+      .badge.hovering {
+        color: #ffd54a;
+        background: rgba(255, 213, 74, 0.1);
+        box-shadow: 0 0 12px rgba(255, 213, 74, 0.35);
+      }
+      .badge.cleared {
+        color: #ff5c7a;
+        background: rgba(255, 92, 122, 0.12);
+        box-shadow: 0 0 12px rgba(255, 92, 122, 0.4);
+      }
+      .badge.idle {
+        color: #7a8a90;
+        background: transparent;
+      }
+      #fps {
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        color: var(--teal);
+        letter-spacing: 0.08em;
+        min-width: 150px;
+      }
+      .swatches {
+        display: flex;
+        gap: 8px;
+      }
+      .swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        background: var(--c);
+        box-shadow: 0 0 8px var(--c);
+        transition: transform 0.12s;
+      }
+      .swatch:hover {
+        transform: scale(1.15);
+      }
+      .swatch.active {
+        border-color: #fff;
+        transform: scale(1.18);
+      }
+      button.btn {
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: var(--cyan);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 7px 16px;
+        transition: all 0.15s;
+      }
+      button.btn:hover {
+        background: rgba(0, 243, 255, 0.12);
+        box-shadow: 0 0 14px rgba(0, 243, 255, 0.35);
+      }
+
+      #guide {
+        position: fixed;
+        bottom: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        display: flex;
+        gap: 18px;
+        padding: 8px 18px;
+        font-size: 12px;
+        color: #9fc;
+        opacity: 0.85;
+        background: var(--glass);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        text-align: center;
+        padding: 24px;
+        background: var(--bg);
+      }
+      #overlay h1 {
+        font-size: 34px;
+        font-weight: 300;
+        letter-spacing: 0.3em;
+        color: var(--cyan);
+        text-shadow: 0 0 24px rgba(0, 243, 255, 0.6);
+      }
+      #overlay p {
+        max-width: 440px;
+        color: #8fa;
+        opacity: 0.75;
+        line-height: 1.55;
+        font-size: 14px;
+      }
+      #overlay .btn {
+        font-size: 14px;
+        padding: 12px 30px;
+      }
+      #msg {
+        color: #ff8a9d;
+        min-height: 20px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="overlay">
+      <h1>AIR CANVAS</h1>
+      <p>
+        Draw in the air with your index finger. Your video never leaves this
+        device — all tracking runs locally in your browser.
+      </p>
+      <button class="btn" id="startBtn">START CAMERA</button>
+      <div id="msg"></div>
+    </div>
+
+    <div id="bar">
+      <div id="badge" class="badge idle">NO HAND</div>
+      <div id="fps">-- FPS</div>
+      <div class="swatches" id="swatches">
+        <div
+          class="swatch active"
+          style="--c: #00f3ff"
+          data-color="#00f3ff"
+          title="Cyan"
+        ></div>
+        <div
+          class="swatch"
+          style="--c: #ff3b5c"
+          data-color="#ff3b5c"
+          title="Red"
+        ></div>
+        <div
+          class="swatch"
+          style="--c: #39ff88"
+          data-color="#39ff88"
+          title="Green"
+        ></div>
+        <div
+          class="swatch"
+          style="--c: #ffe14a"
+          data-color="#ffe14a"
+          title="Yellow"
+        ></div>
+      </div>
+      <button class="btn" id="clearBtn">CLEAR CANVAS</button>
+    </div>
+
+    <div id="guide">
+      <span>☝️ Index only = Draw</span>
+      <span>🖐️ Open hand = Hover</span>
+      <span>✌️ 2 fingers = Next color</span>
+      <span>✊ Fist (hold) = Clear</span>
+    </div>
+
+    <div id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="draw"></canvas>
+      <canvas id="cursor"></canvas>
+    </div>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      (() => {
+        "use strict";
+
+        // ---------- Config ----------
+        const CFG = {
+          smoothBase: 0.35, // adaptive EMA: alpha at rest (jitter removal)
+          smoothGain: 0.006, // ...plus this per px of movement (no lag when moving fast)
+          jumpFrac: 0.4, // a jump larger than this fraction of the screen breaks the stroke
+          lostGrace: 6, // frames of tracking dropout tolerated (motion blur) before reset
+          leaveDrawFrames: 5, // frames of non-draw pose needed to end a stroke (blur glitches)
+          lineWidth: 6,
+          stableFrames: 2, // frames a gesture must persist before it's accepted
+          clearHoldFrames: 12, // fist must be held this many frames to clear
+          colorHoldFrames: 10, // 2-finger pose must be held this long to change color
+          cam: { width: 960, height: 540 }, // fallback size until the real video size is known
+          camFps: 120, // ask for the highest fps the webcam offers
+          // Camera modes are tried in order; the one that reports the highest fps wins
+          camModes: [
+            { w: 960, h: 540 },
+            { w: 640, h: 360 },
+            { w: 1280, h: 720 },
+            { w: 640, h: 480 },
+          ],
+          // Finger posture thresholds (orientation-invariant)
+          extAngle: 150, // PIP joint angle (deg) above this => straight
+          extReach: 1.55, // wrist->tip / wrist->MCP above this => extended
+          foldAngle: 115, // PIP joint angle below this => curled
+          foldReach: 1.4, // wrist->tip / wrist->MCP below this => folded
+        };
+        // Landmark indices: [MCP, PIP, DIP, TIP]
+        const FINGERS = {
+          index: [5, 6, 7, 8],
+          middle: [9, 10, 11, 12],
+          ring: [13, 14, 15, 16],
+          pinky: [17, 18, 19, 20],
+        };
+        const NAMES = ["index", "middle", "ring", "pinky"];
+
+        // ---------- DOM ----------
+        const $ = (id) => document.getElementById(id);
+        const video = $("video"),
+          drawCv = $("draw"),
+          curCv = $("cursor");
+        const dctx = drawCv.getContext("2d"),
+          cctx = curCv.getContext("2d");
+        const badge = $("badge"),
+          fpsEl = $("fps"),
+          msg = $("msg");
+
+        // ---------- State ----------
+        let color = "#00f3ff";
+        let W = window.innerWidth,
+          H = window.innerHeight,
+          dpr = 1;
+        let map = {
+          scale: 1,
+          ox: 0,
+          oy: 0,
+          vw: CFG.cam.width,
+          vh: CFG.cam.height,
+        };
+        let smooth = null,
+          lastPt = null,
+          lastMid = null;
+        let mode = "NONE",
+          candidate = "NONE",
+          candCount = 0,
+          clearLatched = false;
+        const fingerUp = {
+          index: false,
+          middle: false,
+          ring: false,
+          pinky: false,
+        }; // hysteresis memory
+        let lostFrames = 0;
+        let frames = 0,
+          camFrames = 0,
+          lastFpsT = performance.now();
+
+        // ---------- Layout: fullscreen canvases + object-fit:cover coordinate mapping ----------
+        function layout() {
+          W = window.innerWidth;
+          H = window.innerHeight;
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const vw = video.videoWidth || CFG.cam.width,
+            vh = video.videoHeight || CFG.cam.height;
+          const scale = Math.max(W / vw, H / vh); // same maths as object-fit: cover
+          map = {
+            scale,
+            vw,
+            vh,
+            ox: (W - vw * scale) / 2,
+            oy: (H - vh * scale) / 2,
+          };
+
+          const pw = Math.round(W * dpr),
+            ph = Math.round(H * dpr);
+          if (drawCv.width !== pw || drawCv.height !== ph) {
+            const snap = document.createElement("canvas");
+            snap.width = drawCv.width;
+            snap.height = drawCv.height;
+            if (snap.width) snap.getContext("2d").drawImage(drawCv, 0, 0);
+            drawCv.width = curCv.width = pw;
+            drawCv.height = curCv.height = ph;
+            if (snap.width) dctx.drawImage(snap, 0, 0, pw, ph);
+          }
+          dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        window.addEventListener("resize", layout);
+        video.addEventListener("loadedmetadata", layout);
+        layout();
+
+        const toScreen = (p) => ({
+          x: p.x * map.vw * map.scale + map.ox,
+          y: p.y * map.vh * map.scale + map.oy,
+        });
+
+        // ---------- UI ----------
+        function setBadge(text, cls) {
+          badge.textContent = text;
+          badge.className = "badge " + cls;
+        }
+        function clearCanvas() {
+          dctx.save();
+          dctx.setTransform(1, 0, 0, 1, 0, 0);
+          dctx.clearRect(0, 0, drawCv.width, drawCv.height);
+          dctx.restore();
+          lastPt = lastMid = null;
+        }
+        $("clearBtn").addEventListener("click", clearCanvas);
+        window.addEventListener("keydown", (e) => {
+          if (e.key.toLowerCase() === "c") clearCanvas();
+        });
+        function setColor(c) {
+          color = c;
+          document
+            .querySelectorAll(".swatch")
+            .forEach((x) =>
+              x.classList.toggle("active", x.dataset.color === c),
+            );
+        }
+        // Each new "2 fingers" gesture advances to the next color (cyan > red > green > yellow > cyan)
+        function cycleColor() {
+          const sw = [...document.querySelectorAll(".swatch")];
+          const i = sw.findIndex((x) => x.dataset.color === color);
+          setColor(sw[(i + 1) % sw.length].dataset.color);
+        }
+        $("swatches").addEventListener("click", (e) => {
+          const s = e.target.closest(".swatch");
+          if (s) setColor(s.dataset.color);
+        });
+        window.addEventListener("keydown", (e) => {
+          const sw =
+            document.querySelectorAll(".swatch")[parseInt(e.key, 10) - 1];
+          if (sw) setColor(sw.dataset.color);
+        });
+
+        // ---------- Gesture classification (rotation/tilt-invariant) ----------
+        // Landmarks are scaled to pixel space so distances/angles aren't distorted by aspect ratio.
+        const P = (lm, i) => ({
+          x: lm[i].x * map.vw,
+          y: lm[i].y * map.vh,
+          z: lm[i].z * map.vw,
+        });
+        const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+        function angleAt(b, a, c) {
+          // angle at vertex b between a and c, in degrees
+          const v1 = [a.x - b.x, a.y - b.y, a.z - b.z],
+            v2 = [c.x - b.x, c.y - b.y, c.z - b.z];
+          const dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+          const m = Math.hypot(...v1) * Math.hypot(...v2) || 1;
+          return (
+            (Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180) / Math.PI
+          );
+        }
+
+        // Updates per-finger state with hysteresis: only flips on clearly extended / clearly folded.
+        function updateFinger(lm, name) {
+          const [mcpI, pipI, dipI, tipI] = FINGERS[name];
+          const wrist = P(lm, 0),
+            mcp = P(lm, mcpI),
+            pip = P(lm, pipI),
+            dip = P(lm, dipI),
+            tip = P(lm, tipI);
+          const pipAngle = angleAt(pip, mcp, dip);
+          const dipAngle = angleAt(dip, pip, tip);
+          const reach = dist(wrist, tip) / (dist(wrist, mcp) || 1);
+          const tipVsPip = dist(wrist, tip) > dist(wrist, pip);
+
+          const extended =
+            pipAngle > CFG.extAngle &&
+            dipAngle > CFG.extAngle - 10 &&
+            reach > CFG.extReach &&
+            tipVsPip;
+          const folded =
+            pipAngle < CFG.foldAngle || reach < CFG.foldReach || !tipVsPip;
+          if (extended) fingerUp[name] = true;
+          else if (folded) fingerUp[name] = false;
+          // otherwise: ambiguous pose -> keep previous state
+        }
+
+        function classify(lm) {
+          NAMES.forEach((n) => updateFinger(lm, n));
+          const { index, middle, ring, pinky } = fingerUp;
+          if (index && !middle && !ring && !pinky) return "DRAW";
+          if (index && middle && ring && pinky) return "HOVER";
+          if (index && middle && !ring && !pinky) return "COLOR"; // exactly 2 fingers
+          if (!index && !middle && !ring && !pinky) return "CLEAR";
+          return "OTHER"; // incl. 3 fingers: no action
+        }
+
+        // ---------- Drawing ----------
+        function strokeTo(x, y) {
+          dctx.lineCap = "round";
+          dctx.lineJoin = "round";
+          dctx.lineWidth = CFG.lineWidth;
+          dctx.strokeStyle = color;
+          dctx.shadowColor = color;
+          dctx.shadowBlur = 14;
+          if (!lastPt) {
+            dctx.beginPath();
+            dctx.arc(x, y, CFG.lineWidth / 2, 0, Math.PI * 2);
+            dctx.fillStyle = color;
+            dctx.fill();
+            lastPt = { x, y };
+            lastMid = { x, y };
+            return;
+          }
+          const mid = { x: (lastPt.x + x) / 2, y: (lastPt.y + y) / 2 };
+          dctx.beginPath();
+          dctx.moveTo(lastMid.x, lastMid.y);
+          dctx.quadraticCurveTo(lastPt.x, lastPt.y, mid.x, mid.y);
+          dctx.stroke();
+          lastPt = { x, y };
+          lastMid = mid;
+        }
+
+        function drawCursor(x, y, m) {
+          cctx.clearRect(0, 0, W, H);
+          if (x == null) return;
+          cctx.save();
+          const c = m === "HOVER" ? "#ffe14a" : m === "DRAW" ? color : "#8aa";
+          cctx.shadowColor = c;
+          cctx.shadowBlur = 24;
+          const g = cctx.createRadialGradient(x, y, 0, x, y, 22);
+          g.addColorStop(0, "#fff");
+          g.addColorStop(0.25, c);
+          g.addColorStop(1, "transparent");
+          cctx.fillStyle = g;
+          cctx.beginPath();
+          cctx.arc(x, y, m === "HOVER" ? 22 : 14, 0, Math.PI * 2);
+          cctx.fill();
+          if (m === "HOVER") {
+            cctx.strokeStyle = c;
+            cctx.lineWidth = 2;
+            cctx.beginPath();
+            cctx.arc(x, y, 26, 0, Math.PI * 2);
+            cctx.stroke();
+          }
+          cctx.restore();
+        }
+
+        // ---------- MediaPipe results ----------
+        function onResults(res) {
+          frames++;
+          const now = performance.now();
+          if (now - lastFpsT >= 1000) {
+            const dt = now - lastFpsT;
+            fpsEl.textContent =
+              Math.round((frames * 1000) / dt) +
+              " FPS · cam " +
+              Math.round((camFrames * 1000) / dt);
+            frames = 0;
+            camFrames = 0;
+            lastFpsT = now;
+          }
+
+          const lms = res.multiHandLandmarks && res.multiHandLandmarks[0];
+          if (!lms) {
+            if (++lostFrames <= CFG.lostGrace) return; // brief dropout: keep stroke/gesture state
+            smooth = null;
+            lastPt = lastMid = null;
+            candidate = "NONE";
+            candCount = 0;
+            mode = "NONE";
+            clearLatched = false;
+            NAMES.forEach((n) => (fingerUp[n] = false));
+            setBadge("NO HAND", "idle");
+            drawCursor(null);
+            return;
+          }
+          lostFrames = 0;
+
+          const raw = classify(lms);
+          if (raw === candidate) candCount++;
+          else {
+            candidate = raw;
+            candCount = 1;
+          }
+          let needed =
+            raw === "CLEAR"
+              ? CFG.clearHoldFrames
+              : raw === "COLOR"
+                ? CFG.colorHoldFrames
+                : CFG.stableFrames;
+          if (mode === "DRAW" && raw !== "DRAW")
+            needed = Math.max(needed, CFG.leaveDrawFrames);
+          if (candCount >= needed && mode !== raw) {
+            mode = raw;
+            lastPt = lastMid = null;
+            if (raw !== "CLEAR") clearLatched = false;
+            if (raw === "COLOR") cycleColor(); // once per gesture, not while held
+          }
+
+          // EMA-smoothed index fingertip in screen space (accounts for cover cropping)
+          const t = toScreen(lms[8]);
+          if (!smooth) smooth = { x: t.x, y: t.y };
+          else {
+            const dx = t.x - smooth.x,
+              dy = t.y - smooth.y,
+              d = Math.hypot(dx, dy);
+            if (d > CFG.jumpFrac * Math.max(W, H)) lastPt = lastMid = null; // re-acquired far away: no long line
+            const a = Math.min(1, CFG.smoothBase + d * CFG.smoothGain); // fast motion => follow almost 1:1
+            smooth.x += a * dx;
+            smooth.y += a * dy;
+          }
+
+          switch (mode) {
+            case "DRAW":
+              setBadge("DRAWING", "drawing");
+              strokeTo(smooth.x, smooth.y);
+              drawCursor(smooth.x, smooth.y, "DRAW");
+              break;
+            case "HOVER":
+              setBadge("HOVERING", "hovering");
+              drawCursor(smooth.x, smooth.y, "HOVER");
+              break;
+            case "CLEAR":
+              setBadge("CLEARED", "cleared");
+              if (!clearLatched) {
+                clearCanvas();
+                clearLatched = true;
+              }
+              drawCursor(null);
+              break;
+            case "COLOR":
+              setBadge("COLOR CHANGED", "hovering");
+              drawCursor(smooth.x, smooth.y, "DRAW");
+              break;
+            default:
+              setBadge("READY", "idle");
+              drawCursor(smooth.x, smooth.y, "OTHER");
+          }
+        }
+
+        // ---------- Camera: pick the mode with the highest real frame rate ----------
+        const camConstraints = (m) => ({
+          width: { ideal: m.w },
+          height: { ideal: m.h },
+          frameRate: { ideal: CFG.camFps },
+        });
+
+        // Opens the camera ONCE (so the browser asks for permission only once), then tries the
+        // other modes on the live track with applyConstraints(), which never re-prompts or restarts it.
+        async function openCamera() {
+          const first = CFG.camModes[0];
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: Object.assign({ facingMode: "user" }, camConstraints(first)),
+          });
+          const track = stream.getVideoTracks()[0];
+          try {
+            let best = { m: first, fps: track.getSettings().frameRate || 0 };
+            for (const m of CFG.camModes.slice(1)) {
+              if (best.fps >= 55) break; // already fast enough
+              try {
+                await track.applyConstraints(camConstraints(m));
+              } catch (e) {
+                continue;
+              }
+              const fps = track.getSettings().frameRate || 0;
+              if (fps > best.fps + 1) best = { m, fps };
+            }
+            await track.applyConstraints(camConstraints(best.m));
+          } catch (e) {
+            console.warn("Camera mode tuning skipped:", e);
+          }
+          return stream;
+        }
+
+        // ---------- Startup ----------
+        async function start() {
+          msg.textContent = "";
+          if (typeof Hands === "undefined") {
+            msg.textContent =
+              "MediaPipe failed to load. Check your internet connection and reload.";
+            return;
+          }
+          $("startBtn").disabled = true;
+          $("startBtn").textContent = "LOADING MODEL…";
+          try {
+            const hands = new Hands({
+              locateFile: (f) =>
+                `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`,
+            });
+            hands.setOptions({
+              maxNumHands: 1,
+              modelComplexity: 0, // lite model = fastest
+              minDetectionConfidence: 0.6,
+              minTrackingConfidence: 0.5,
+              selfieMode: false,
+            });
+            hands.onResults(onResults);
+
+            await hands.initialize(); // preload model before the camera starts
+
+            const stream = await openCamera();
+            video.srcObject = stream;
+            await video.play();
+
+            // Latest-frame-only loop: if inference is slower than the camera, stale frames are
+            // skipped instead of queued, so tracking never lags behind your hand.
+            let busy = false;
+            const pump = async () => {
+              camFrames++; // frames the camera actually delivered
+              if (!busy && video.readyState >= 2) {
+                busy = true;
+                try {
+                  await hands.send({ image: video });
+                } catch (e) {
+                  console.error(e);
+                }
+                busy = false;
+              }
+              schedule();
+            };
+            const schedule = () =>
+              "requestVideoFrameCallback" in video
+                ? video.requestVideoFrameCallback(pump)
+                : requestAnimationFrame(pump);
+            schedule();
+            layout();
+            $("overlay").style.display = "none";
+          } catch (err) {
+            console.error(err);
+            const denied =
+              err &&
+              (err.name === "NotAllowedError" ||
+                err.name === "PermissionDeniedError");
+            msg.textContent = denied
+              ? "Camera permission denied. Allow access and try again."
+              : "Could not start: " + (err && err.message ? err.message : err);
+            $("startBtn").disabled = false;
+            $("startBtn").textContent = "START CAMERA";
+          }
+        }
+        $("startBtn").addEventListener("click", start);
+      })();
+    </script>
+  </body>
+</html>
